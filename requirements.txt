@@ -1,4 +1,4 @@
 openai>=1.0.0
 gradio>=3.30.0
 python-dotenv>=1.0.0
-tiktoken>=0.5.1  # For token estimation using OpenAI tokenizer
+tiktoken>=0.5.1
