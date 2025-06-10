@@ -166,7 +166,7 @@ def update_user_table(df):
 
 ### ---- Gradio App ---- ###
 with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue", font=["Comic Sans MS", "Arial", "sans-serif"])) as demo:
-    gr.Markdown("""# 🔐 Login""")
+    login_heading = gr.Markdown("""# 🔐 Login""")
     login_section = gr.Column(visible=True)
     with login_section:
         user_id = gr.Textbox(label="User ID")
@@ -177,6 +177,7 @@ with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue"
 
     chatbot_ui = gr.Column(visible=False)
     with chatbot_ui:
+        gr.Markdown("""## 💬 Lets chat!""")
         chatbot = gr.Chatbot(label="Conversation", type="messages")
         prompt = gr.Textbox(placeholder="Ask me anything!", label="Your Question")
         send_btn = gr.Button("Send", variant="primary")
@@ -193,7 +194,7 @@ with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue"
         USERS = load_users()
         valid, result = validate_user(user_id_val, token_val)
         if not valid:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), result, gr.update(), gr.update(value=[])
+            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), result, gr.update(), gr.update(value=[]), gr.update(value="# 🔐 Login")
 
         chat_state = []
         session_history = deque()
@@ -211,13 +212,13 @@ with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue"
 
         if result["role"] == "admin":
             headers, rows = get_user_table()
-            return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged in as admin.", gr.update(value=[headers] + rows), gr.update(value=[])
+            return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged in as admin.", gr.update(value=[headers] + rows), gr.update(value=[]), gr.update(value="# 📜 Logs")
         elif result["role"] == "user" and result.get("active", True):
-            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "Logged in. Start chatting!", gr.update(), gr.update(value=chat_state)
+            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "Logged in. Start chatting!", gr.update(), gr.update(value=chat_state), gr.update(value="# 📜 Logs")
         else:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), "Access denied.", gr.update(), gr.update(value=[])
+            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), "Access denied.", gr.update(), gr.update(value=[]), gr.update(value="# 🔐 Login")
 
-    login_btn.click(route, [user_id, token], [chatbot_ui, admin_ui, login_section, status_box, user_table, chatbot])
+    login_btn.click(route, [user_id, token], [chatbot_ui, admin_ui, login_section, status_box, user_table, chatbot, login_heading])
     prompt.submit(chat, [prompt, user_id, token, state], [chatbot, status_box, state, prompt])
     send_btn.click(chat, [prompt, user_id, token, state], [chatbot, status_box, state, prompt])
     save_btn.click(update_user_table, [user_table], [status_box])
