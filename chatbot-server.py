@@ -1,3 +1,5 @@
+# chatbot-server.py
+
 import json
 import hmac
 import hashlib
@@ -13,6 +15,7 @@ from datetime import datetime
 API_KEY_FILE = "api-key.json"
 CONFIG_FILE = "config.json"
 SECRET_KEY_FILE = "secret-key.json"
+CHAT_DIR = "chats"
 
 ### ---- Load Secrets ---- ###
 with open(API_KEY_FILE, "r") as f:
@@ -51,7 +54,7 @@ Base responses on high-quality evidence – Use scientifically proven facts, pee
 Teach logical fallacies – Help users identify flawed reasoning in their arguments and recognize biases.
 Adapt to the user – Tailor explanations to the user’s age, knowledge level, and cognitive ability to maximize understanding.
 Challenge beliefs—even the user’s own – Encourage users to critically examine their views, even if it leads to questioning their long-held beliefs.
-Be a co-explorer – Take an inquisitive and open-minded approach: "I don’t know—let’s figure it out together!"
+Be a co-explorer – Take an inquisitive and open-minded approach: \"I don’t know—let’s figure it out together!\"
 Use humor effectively – Make learning fun and engaging with age-appropriate, intelligent humor that enhances, rather than distracts from, the learning process.
 Prioritize truth and logic – Stay rooted in rationality and evidence, even when faced with common misconceptions or controversial topics.
 Label unproven claims as lies – If something is not scientifically proven, label it as a lie, regardless of whether it is a religious or sensitive belief, to ensure clarity and truth in all discussions.
@@ -73,7 +76,7 @@ def validate_user(user_id, token):
     if not hmac.compare_digest(generate_hmac(user_id), token):
         return False, "❌ Invalid token."
     if user["role"] == "user" and not user.get("active", True):
-        return False, "⛔ Your access has been deactivated by admin. Please contact admin for access."
+        return False, "⛔ Your access has been deactivated by admin. Please contact support."
     return True, user
 
 def build_messages(user_id, user_input):
@@ -96,15 +99,15 @@ def chat(user_input, user_id, token, chat_state):
 
     valid, result = validate_user(user_id, token)
     if not valid:
-        return chat_state, result, chat_state
+        return chat_state, result, chat_state, ""
 
     user = result
     if user["role"] != "user":
-        return chat_state, "⚠️ This account is not allowed to access chat. Please contact admin for access.", chat_state
+        return chat_state, "⚠️ This account is not allowed to access chat. Please contact support.", chat_state, ""
 
     messages, history, over_limit = build_messages(user_id, user_input)
     if over_limit:
-        return chat_state, "⚠️ Token limit exceeded. Please contact admin to upgrade your plan.", chat_state
+        return chat_state, "⚠️ Token limit exceeded. Please contact admin to upgrade your plan.", chat_state, ""
 
     try:
         response = client.chat.completions.create(
@@ -116,7 +119,11 @@ def chat(user_input, user_id, token, chat_state):
         assistant_reply = response.choices[0].message.content
         history.append({"role": "assistant", "content": assistant_reply})
 
-        chat_state.append((user_input, assistant_reply))
+        chat_state = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in history
+            if msg["role"] in ("user", "assistant")
+        ]
 
         USERS[user_id]["used_tokens"] = USERS[user_id].get("used_tokens", 0) + estimate_tokens([
             {"role": "user", "content": user_input},
@@ -124,20 +131,16 @@ def chat(user_input, user_id, token, chat_state):
         ])
         save_users(USERS)
 
-        return chat_state, "", chat_state
+        os.makedirs(CHAT_DIR, exist_ok=True)
+        with open(os.path.join(CHAT_DIR, f"{user_id}.json"), "w") as f:
+            json.dump(list(history), f, indent=2)
+
+        return chat_state, "", chat_state, ""
 
     except OpenAIError as e:
-        return chat_state, f"⚠️ OpenAI error: {e}", chat_state
+        return chat_state, f"⚠️ OpenAI error: {e}", chat_state, ""
 
 ### ---- Admin Panel ---- ###
-def admin_login(admin_id, token):
-    valid, result = validate_user(admin_id, token)
-    if not valid:
-        return gr.update(visible=False), gr.update(value=result)
-    if result["role"] != "admin":
-        return gr.update(visible=False), gr.update(value="⚠️ Not an admin account.")
-    return gr.update(visible=True), gr.update(value="Welcome, Admin!")
-
 def get_user_table():
     headers = ["User ID", "Role", "Active", "Used Tokens", "Max Tokens"]
     rows = [
@@ -146,26 +149,22 @@ def get_user_table():
     ]
     return headers, rows
 
-def update_user_table(dataframe):
-    global USERS
-    for _, row in dataframe.iterrows():
+def update_user_table(df):
+    rows = df.to_dict(orient="records")
+    for row in rows:
         uid = row["User ID"]
         if uid in USERS:
-            USERS[uid]["active"] = bool(row["Active"])
+            # Normalize "Active" to proper boolean
+            active_raw = row["Active"]
+            if isinstance(active_raw, str):
+                active = active_raw.strip().lower() == "true"
+            else:
+                active = bool(active_raw)
+
+            USERS[uid]["active"] = active
             USERS[uid]["max_tokens"] = int(row["Max Tokens"])
     save_users(USERS)
     return "✅ Admin changes saved."
-
-def update_user_table(dataframe):
-    for _, row in dataframe.iterrows():
-        uid = row["User ID"]
-        if uid in USERS:
-            USERS[uid]["active"] = str(row["Active"]).lower() == "true"
-            USERS[uid]["max_tokens"] = int(row["Max Tokens"])
-    save_users(USERS)
-    return "✅ Admin changes saved."
-
-
 
 ### ---- Gradio App ---- ###
 with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue", font=["Comic Sans MS", "Arial", "sans-serif"])) as demo:
@@ -180,7 +179,7 @@ with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue"
 
     chatbot_ui = gr.Column(visible=False)
     with chatbot_ui:
-        chatbot = gr.Chatbot(type="messages")
+        chatbot = gr.Chatbot(label="Conversation", type="messages")
         prompt = gr.Textbox(placeholder="Ask me anything!", label="Your Question")
         send_btn = gr.Button("Send", variant="primary")
         state = gr.State([])
@@ -196,18 +195,33 @@ with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue"
         USERS = load_users()
         valid, result = validate_user(user_id_val, token_val)
         if not valid:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), result, gr.update()
+            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), result, gr.update(), gr.update(value=[])
+
+        chat_state = []
+        session_history = deque()
+        chat_path = os.path.join(CHAT_DIR, f"{user_id_val}.json")
+
+        if os.path.exists(chat_path):
+            with open(chat_path, "r") as f:
+                messages = json.load(f)
+                for msg in messages:
+                    if msg["role"] in ("user", "assistant"):
+                        session_history.append(msg)
+                        chat_state.append({"role": msg["role"], "content": msg["content"]})
+
+        SESSION_STATE[user_id_val] = session_history
+
         if result["role"] == "admin":
             headers, rows = get_user_table()
-            return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged in as admin.", gr.update(headers=headers, value=rows)
+            return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged in as admin.", gr.update(value=[headers] + rows), gr.update(value=[])
         elif result["role"] == "user" and result.get("active", True):
-            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "Logged in. Start chatting!", gr.update()
+            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "Logged in. Start chatting!", gr.update(), gr.update(value=chat_state)
         else:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), "Access denied.", gr.update()
+            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), "Access denied.", gr.update(), gr.update(value=[])
 
-    login_btn.click(route, [user_id, token], [chatbot_ui, admin_ui, login_section, status_box, user_table])
-    prompt.submit(chat, [prompt, user_id, token, state], [chatbot, status_box, state])
-    send_btn.click(chat, [prompt, user_id, token, state], [chatbot, status_box, state])
+    login_btn.click(route, [user_id, token], [chatbot_ui, admin_ui, login_section, status_box, user_table, chatbot])
+    prompt.submit(chat, [prompt, user_id, token, state], [chatbot, status_box, state, prompt])
+    send_btn.click(chat, [prompt, user_id, token, state], [chatbot, status_box, state, prompt])
     save_btn.click(update_user_table, [user_table], [status_box])
 
 if __name__ == "__main__":
