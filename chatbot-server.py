@@ -54,7 +54,7 @@ Base responses on high-quality evidence – Use scientifically proven facts, pee
 Teach logical fallacies – Help users identify flawed reasoning in their arguments and recognize biases.
 Adapt to the user – Tailor explanations to the user’s age, knowledge level, and cognitive ability to maximize understanding.
 Challenge beliefs—even the user’s own – Encourage users to critically examine their views, even if it leads to questioning their long-held beliefs.
-Be a co-explorer – Take an inquisitive and open-minded approach: "I don’t know—let’s figure it out together!"
+Be a co-explorer – Take an inquisitive and open-minded approach: \"I don’t know—let’s figure it out together!\"
 Use humor effectively – Make learning fun and engaging with age-appropriate, intelligent humor that enhances, rather than distracts from, the learning process.
 Prioritize truth and logic – Stay rooted in rationality and evidence, even when faced with common misconceptions or controversial topics.
 Label unproven claims as lies – If something is not scientifically proven, label it as a lie, regardless of whether it is a religious or sensitive belief, to ensure clarity and truth in all discussions.
@@ -119,8 +119,11 @@ def chat(user_input, user_id, token, chat_state):
         assistant_reply = response.choices[0].message.content
         history.append({"role": "assistant", "content": assistant_reply})
 
-        chat_state.append({"role": "user", "content": user_input})
-        chat_state.append({"role": "assistant", "content": assistant_reply})
+        chat_state = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in history
+            if msg["role"] in ("user", "assistant")
+        ]
 
         USERS[user_id]["used_tokens"] = USERS[user_id].get("used_tokens", 0) + estimate_tokens([
             {"role": "user", "content": user_input},
@@ -138,14 +141,6 @@ def chat(user_input, user_id, token, chat_state):
         return chat_state, f"⚠️ OpenAI error: {e}", chat_state, ""
 
 ### ---- Admin Panel ---- ###
-def admin_login(admin_id, token):
-    valid, result = validate_user(admin_id, token)
-    if not valid:
-        return gr.update(visible=False), gr.update(value=result)
-    if result["role"] != "admin":
-        return gr.update(visible=False), gr.update(value="⚠️ Not an admin account.")
-    return gr.update(visible=True), gr.update(value="Welcome, Admin!")
-
 def get_user_table():
     headers = ["User ID", "Role", "Active", "Used Tokens", "Max Tokens"]
     rows = [
@@ -193,25 +188,31 @@ with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue"
         USERS = load_users()
         valid, result = validate_user(user_id_val, token_val)
         if not valid:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), result, gr.update(), gr.update(value=[]), gr.update(value="")
+            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), result, gr.update(), gr.update(value=[])
 
         chat_state = []
+        session_history = deque()
         chat_path = os.path.join(CHAT_DIR, f"{user_id_val}.json")
+
         if os.path.exists(chat_path):
             with open(chat_path, "r") as f:
                 messages = json.load(f)
-                chat_state = messages
-                SESSION_STATE[user_id_val] = deque([msg for msg in messages if msg["role"] in ("user", "assistant")])
+                for msg in messages:
+                    if msg["role"] in ("user", "assistant"):
+                        session_history.append(msg)
+                        chat_state.append({"role": msg["role"], "content": msg["content"]})
+
+        SESSION_STATE[user_id_val] = session_history
 
         if result["role"] == "admin":
             headers, rows = get_user_table()
-            return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged in as admin.", gr.update(value=[headers] + rows), gr.update(value=[]), gr.update(value="")
+            return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged in as admin.", gr.update(value=[headers] + rows), gr.update(value=[])
         elif result["role"] == "user" and result.get("active", True):
-            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "Logged in. Start chatting!", gr.update(), gr.update(value=chat_state), gr.update(value="")
+            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "Logged in. Start chatting!", gr.update(), gr.update(value=chat_state)
         else:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), "Access denied.", gr.update(), gr.update(value=[]), gr.update(value="")
+            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), "Access denied.", gr.update(), gr.update(value=[])
 
-    login_btn.click(route, [user_id, token], [chatbot_ui, admin_ui, login_section, status_box, user_table, chatbot, prompt])
+    login_btn.click(route, [user_id, token], [chatbot_ui, admin_ui, login_section, status_box, user_table, chatbot])
     prompt.submit(chat, [prompt, user_id, token, state], [chatbot, status_box, state, prompt])
     send_btn.click(chat, [prompt, user_id, token, state], [chatbot, status_box, state, prompt])
     save_btn.click(update_user_table, [user_table], [status_box])
