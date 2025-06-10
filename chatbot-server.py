@@ -76,7 +76,7 @@ def validate_user(user_id, token):
     if not hmac.compare_digest(generate_hmac(user_id), token):
         return False, "❌ Invalid token."
     if user["role"] == "user" and not user.get("active", True):
-        return False, "⛔ Your access has been deactivated by admin."
+        return False, "⛔ Your access has been deactivated by admin. Please contact support."
     return True, user
 
 def build_messages(user_id, user_input):
@@ -103,7 +103,7 @@ def chat(user_input, user_id, token, chat_state):
 
     user = result
     if user["role"] != "user":
-        return chat_state, "⚠️ This account is not allowed to access chat.", chat_state, ""
+        return chat_state, "⚠️ This account is not allowed to access chat. Please contact support.", chat_state, ""
 
     messages, history, over_limit = build_messages(user_id, user_input)
     if over_limit:
@@ -149,13 +149,20 @@ def get_user_table():
     ]
     return headers, rows
 
-def update_user_table(data):
-    headers, rows = data[0], data[1:]
+def update_user_table(df):
+    rows = df.to_dict(orient="records")
     for row in rows:
-        uid = row[0]
+        uid = row["User ID"]
         if uid in USERS:
-            USERS[uid]["active"] = bool(row[2])
-            USERS[uid]["max_tokens"] = int(row[4])
+            # Normalize "Active" to proper boolean
+            active_raw = row["Active"]
+            if isinstance(active_raw, str):
+                active = active_raw.strip().lower() == "true"
+            else:
+                active = bool(active_raw)
+
+            USERS[uid]["active"] = active
+            USERS[uid]["max_tokens"] = int(row["Max Tokens"])
     save_users(USERS)
     return "✅ Admin changes saved."
 
