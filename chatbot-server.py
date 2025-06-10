@@ -43,19 +43,7 @@ DEFAULT_MAX_TOKENS = 128_000
 SYSTEM_MESSAGE = {
     "role": "system",
     "content": """
-You are a critical thinking AI designed to help children and adults develop scientific reasoning through engaging and thoughtful questioning. Rather than providing direct answers, your role is to guide users toward logical conclusions, helping them explore topics deeply. Your responses are grounded in high-quality scientific research, historically proven facts, and sound reasoning.
-Key Principles:
-Ask, don’t tell – Instead of giving direct answers, pose thought-provoking questions that encourage users to think critically.
-Foster curiosity – Guide users to deeply explore topics and analyze ideas logically.
-Base responses on high-quality evidence – Use scientifically proven facts, peer-reviewed research, high-quality meta-analyses, systematic reviews, and RCTs that are not funded by companies promoting their products. Avoid speculation and ensure reliability and impartiality.
-Teach logical fallacies – Help users identify flawed reasoning in their arguments and recognize biases.
-Adapt to the user – Tailor explanations to the user’s age, knowledge level, and cognitive ability to maximize understanding.
-Challenge beliefs—even the user’s own – Encourage users to critically examine their views, even if it leads to questioning their long-held beliefs.
-Be a co-explorer – Take an inquisitive and open-minded approach: "I don’t know—let’s figure it out together!"
-Use humor effectively – Make learning fun and engaging with age-appropriate, intelligent humor that enhances, rather than distracts from, the learning process.
-Prioritize truth and logic – Stay rooted in rationality and evidence, even when faced with common misconceptions or controversial topics.
-Label unproven claims as lies – If something is not scientifically proven, label it as a lie, regardless of whether it is a religious or sensitive belief, to ensure clarity and truth in all discussions.
-Discuss harmful effects – When discussing substances like Shilajit or Ashwagandha or any pseudoscience supplements, natural or any traditional herbs label them as scientifically unproven or useless if evidence supports it, and highlight any potential harmful effects based on available research.
+You are a critical thinking AI designed to help children and adults develop scientific reasoning through engaging and thoughtful questioning. Rather than providing direct answers, your role is to guide users toward logical conclusions, helping them explore topics deeply.
 """
 }
 
@@ -73,7 +61,7 @@ def validate_user(user_id, token):
     if not hmac.compare_digest(generate_hmac(user_id), token):
         return False, "❌ Invalid token."
     if user["role"] == "user" and not user.get("active", True):
-        return False, "⛔ Your access has been deactivated by admin. Please contact admin for access."
+        return False, "⛔ Your access has been deactivated by admin."
     return True, user
 
 def build_messages(user_id, user_input):
@@ -100,7 +88,7 @@ def chat(user_input, user_id, token, chat_state):
 
     user = result
     if user["role"] != "user":
-        return chat_state, "⚠️ This account is not allowed to access chat. Please contact admin for access.", chat_state
+        return chat_state, "⚠️ This account is not allowed to access chat.", chat_state
 
     messages, history, over_limit = build_messages(user_id, user_input)
     if over_limit:
@@ -116,7 +104,8 @@ def chat(user_input, user_id, token, chat_state):
         assistant_reply = response.choices[0].message.content
         history.append({"role": "assistant", "content": assistant_reply})
 
-        chat_state.append((user_input, assistant_reply))
+        chat_state.append({"role": "user", "content": user_input})
+        chat_state.append({"role": "assistant", "content": assistant_reply})
 
         USERS[user_id]["used_tokens"] = USERS[user_id].get("used_tokens", 0) + estimate_tokens([
             {"role": "user", "content": user_input},
@@ -146,26 +135,18 @@ def get_user_table():
     ]
     return headers, rows
 
-def update_user_table(dataframe):
-    global USERS
-    for _, row in dataframe.iterrows():
-        uid = row["User ID"]
+def update_user_table(data):
+    if not data:
+        return "⚠️ No data received."
+
+    headers, *rows = data
+    for row in rows:
+        uid = row[0]
         if uid in USERS:
-            USERS[uid]["active"] = bool(row["Active"])
-            USERS[uid]["max_tokens"] = int(row["Max Tokens"])
+            USERS[uid]["active"] = bool(row[2])
+            USERS[uid]["max_tokens"] = int(row[4])
     save_users(USERS)
     return "✅ Admin changes saved."
-
-def update_user_table(dataframe):
-    for _, row in dataframe.iterrows():
-        uid = row["User ID"]
-        if uid in USERS:
-            USERS[uid]["active"] = str(row["Active"]).lower() == "true"
-            USERS[uid]["max_tokens"] = int(row["Max Tokens"])
-    save_users(USERS)
-    return "✅ Admin changes saved."
-
-
 
 ### ---- Gradio App ---- ###
 with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue", font=["Comic Sans MS", "Arial", "sans-serif"])) as demo:
@@ -180,7 +161,7 @@ with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue"
 
     chatbot_ui = gr.Column(visible=False)
     with chatbot_ui:
-        chatbot = gr.Chatbot(type="messages")
+        chatbot = gr.Chatbot(label="Chat", type="messages")
         prompt = gr.Textbox(placeholder="Ask me anything!", label="Your Question")
         send_btn = gr.Button("Send", variant="primary")
         state = gr.State([])
@@ -199,7 +180,7 @@ with gr.Blocks(title="🧠 SKeptic Bot", theme=gr.themes.Soft(primary_hue="blue"
             return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), result, gr.update()
         if result["role"] == "admin":
             headers, rows = get_user_table()
-            return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged in as admin.", gr.update(headers=headers, value=rows)
+            return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), "Logged in as admin.", gr.update(value=[headers] + rows)
         elif result["role"] == "user" and result.get("active", True):
             return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "Logged in. Start chatting!", gr.update()
         else:
