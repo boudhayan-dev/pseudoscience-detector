@@ -1,5 +1,3 @@
-# chatbot-server.py
-
 import json
 import hmac
 import hashlib
