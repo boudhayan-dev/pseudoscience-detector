@@ -16,11 +16,9 @@ SECRET_KEY_FILE = "secret-key.json"
 CHAT_DIR = "chats"
 
 ### ---- Load Secrets ---- ###
-with open(API_KEY_FILE, "r") as f:
-    OPENAI_API_KEY = json.load(f)["api_key"]
 
-with open(SECRET_KEY_FILE, "r") as f:
-    SECRET_KEY = json.load(f)["secret_key"].encode()
+OPENAI_API_KEY = os.environ["APIK"]
+SECRET_KEY = os.environ["SECT"].encode("utf-8")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -64,8 +62,12 @@ Discuss harmful effects – When discussing substances like Shilajit or Ashwagan
 def generate_hmac(user_id: str) -> str:
     return hmac.new(SECRET_KEY, user_id.encode(), hashlib.sha256).hexdigest()
 
-def estimate_tokens(messages):
-    return sum(len(encoding.encode(msg["content"])) for msg in messages)
+def estimate_tokens(msgs):
+    tokens = 3                          # every request is primed with <|start|>assistant
+    for m in msgs:
+        tokens += 4                    # <|start|>{role}\n{content}<|end|>\n
+        tokens += len(encoding.encode(m["content"]))
+    return tokens
 
 def validate_user(user_id, token):
     user = USERS.get(user_id)
@@ -93,7 +95,6 @@ def build_messages(user_id, user_input):
 ### ---- Chatbot Logic ---- ###
 def chat(user_input, user_id, token, chat_state):
     global USERS
-    USERS = load_users()
 
     valid, result = validate_user(user_id, token)
     if not valid:
